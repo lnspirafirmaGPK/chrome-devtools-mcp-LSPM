@@ -4,93 +4,56 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import type {
-  ConsoleMessage,
-  JSHandle,
-  ConsoleMessageLocation,
-} from 'puppeteer-core';
-
-const logLevels: Record<string, string> = {
-  log: 'Log',
-  info: 'Info',
-  warning: 'Warning',
-  error: 'Error',
-  exception: 'Exception',
-  assert: 'Assert',
-};
-
-export async function formatConsoleEvent(
-  event: ConsoleMessage | Error,
-): Promise<string> {
-  // Check if the event object has the .type() method, which is unique to ConsoleMessage
-  if ('type' in event) {
-    return await formatConsoleMessage(event);
-  }
-  return `Error: ${event.message}`;
+export interface ConsoleMessageData {
+  consoleMessageStableId: number;
+  type?: string;
+  message?: string;
+  args?: string[];
 }
 
-async function formatConsoleMessage(msg: ConsoleMessage): Promise<string> {
-  const logLevel = logLevels[msg.type()];
-  const args = msg.args();
-
-  if (logLevel === 'Error') {
-    let message = `${logLevel}> `;
-    if (msg.text() === 'JSHandle@error') {
-      const errorHandle = args[0] as JSHandle<Error>;
-      message += await errorHandle
-        .evaluate(error => {
-          return error.toString();
-        })
-        .catch(() => {
-          return 'Error occured';
-        });
-      void errorHandle.dispose().catch();
-
-      const formattedArgs = await formatArgs(args.slice(1));
-      if (formattedArgs) {
-        message += ` ${formattedArgs}`;
-      }
-    } else {
-      message += msg.text();
-      const formattedArgs = await formatArgs(args);
-      if (formattedArgs) {
-        message += ` ${formattedArgs}`;
-      }
-      for (const frame of msg.stackTrace()) {
-        message += '\n' + formatStackFrame(frame);
-      }
-    }
-    return message;
-  }
-
-  const formattedArgs = await formatArgs(args);
-  const text = msg.text();
-
-  return `${logLevel}> ${formatStackFrame(
-    msg.location(),
-  )}: ${text} ${formattedArgs}`.trim();
+// The short format for a console message, based on a previous format.
+export function formatConsoleEventShort(msg: ConsoleMessageData): string {
+  return `msgid=${msg.consoleMessageStableId} [${msg.type}] ${msg.message} (${msg.args?.length ?? 0} args)`;
 }
 
-async function formatArgs(args: readonly JSHandle[]): Promise<string> {
-  const argValues = await Promise.all(
-    args.map(arg =>
-      arg.jsonValue().catch(() => {
-        // Ignore errors
-      }),
-    ),
-  );
+function getArgs(msg: ConsoleMessageData) {
+  const args = [...(msg.args ?? [])];
 
-  return argValues
-    .map(value => {
-      return typeof value === 'object' ? JSON.stringify(value) : String(value);
-    })
-    .join(' ');
+  // If there is no text, the first argument serves as text (see formatMessage).
+  if (!msg.message) {
+    args.shift();
+  }
+
+  return args;
 }
 
-function formatStackFrame(stackFrame: ConsoleMessageLocation): string {
-  if (!stackFrame?.url) {
-    return '<unknown>';
+// The verbose format for a console message, including all details.
+export function formatConsoleEventVerbose(msg: ConsoleMessageData): string {
+  const result = [
+    `ID: ${msg.consoleMessageStableId}`,
+    `Message: ${msg.type}> ${msg.message}`,
+    formatArgs(msg),
+  ].filter(line => !!line);
+
+  return result.join('\n');
+}
+
+function formatArg(arg: unknown) {
+  return typeof arg === 'object' ? JSON.stringify(arg) : String(arg);
+}
+
+function formatArgs(consoleData: ConsoleMessageData): string {
+  const args = getArgs(consoleData);
+
+  if (!args.length) {
+    return '';
   }
-  const filename = stackFrame.url.replace(/^.*\//, '');
-  return `${filename}:${stackFrame.lineNumber}:${stackFrame.columnNumber}`;
+
+  const result = ['### Arguments'];
+
+  for (const [key, arg] of args.entries()) {
+    result.push(`Arg #${key}: ${formatArg(arg)}`);
+  }
+
+  return result.join('\n');
 }

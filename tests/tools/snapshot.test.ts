@@ -21,7 +21,7 @@ describe('snapshot', () => {
   describe('browser_wait_for', () => {
     it('should work', async () => {
       await withBrowser(async (response, context) => {
-        const page = await context.getSelectedPage();
+        const page = context.getSelectedPage();
 
         await page.setContent(
           html`<main><span>Hello</span><span> </span><div>World</div></main>`,
@@ -91,6 +91,33 @@ describe('snapshot', () => {
         assert.equal(
           response.responseLines[0],
           'Element with text "Header" found.',
+        );
+        assert.ok(response.includeSnapshot);
+      });
+    });
+
+    it('should work with iframe content', async () => {
+      await withBrowser(async (response, context) => {
+        const page = context.getSelectedPage();
+
+        await page.setContent(
+          html`<h1>Top level</h1>
+            <iframe srcdoc="<p>Hello iframe</p>"></iframe>`,
+        );
+
+        await waitFor.handler(
+          {
+            params: {
+              text: 'Hello iframe',
+            },
+          },
+          response,
+          context,
+        );
+
+        assert.equal(
+          response.responseLines[0],
+          'Element with text "Hello iframe" found.',
         );
         assert.ok(response.includeSnapshot);
       });

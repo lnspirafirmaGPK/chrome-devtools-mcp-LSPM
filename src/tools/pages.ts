@@ -4,16 +4,17 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import z from 'zod';
+import {logger} from '../logger.js';
+import {zod} from '../third_party/index.js';
 
-import {ToolCategories} from './categories.js';
-import {CLOSE_PAGE_ERROR, defineTool} from './ToolDefinition.js';
+import {ToolCategory} from './categories.js';
+import {CLOSE_PAGE_ERROR, defineTool, timeoutSchema} from './ToolDefinition.js';
 
 export const listPages = defineTool({
   name: 'list_pages',
   description: `Get a list of pages open in the browser.`,
   annotations: {
-    category: ToolCategories.NAVIGATION_AUTOMATION,
+    category: ToolCategory.NAVIGATION,
     readOnlyHint: true,
   },
   schema: {},
@@ -26,11 +27,11 @@ export const selectPage = defineTool({
   name: 'select_page',
   description: `Select a page as a context for future tool calls.`,
   annotations: {
-    category: ToolCategories.NAVIGATION_AUTOMATION,
+    category: ToolCategory.NAVIGATION,
     readOnlyHint: true,
   },
   schema: {
-    pageIdx: z
+    pageIdx: zod
       .number()
       .describe(
         'The index of the page to select. Call list_pages to list pages.',
@@ -48,11 +49,11 @@ export const closePage = defineTool({
   name: 'close_page',
   description: `Closes the page by its index. The last open page cannot be closed.`,
   annotations: {
-    category: ToolCategories.NAVIGATION_AUTOMATION,
+    category: ToolCategory.NAVIGATION,
     readOnlyHint: false,
   },
   schema: {
-    pageIdx: z
+    pageIdx: zod
       .number()
       .describe(
         'The index of the page to close. Call list_pages to list pages.',
@@ -76,17 +77,20 @@ export const newPage = defineTool({
   name: 'new_page',
   description: `Creates a new page`,
   annotations: {
-    category: ToolCategories.NAVIGATION_AUTOMATION,
+    category: ToolCategory.NAVIGATION,
     readOnlyHint: false,
   },
   schema: {
-    url: z.string().describe('URL to load in a new page.'),
+    url: zod.string().describe('URL to load in a new page.'),
+    ...timeoutSchema,
   },
   handler: async (request, response, context) => {
     const page = await context.newPage();
 
     await context.waitForEventsAfterAction(async () => {
-      await page.goto(request.params.url);
+      await page.goto(request.params.url, {
+        timeout: request.params.timeout,
+      });
     });
 
     response.setIncludePages(true);
@@ -97,51 +101,86 @@ export const navigatePage = defineTool({
   name: 'navigate_page',
   description: `Navigates the currently selected page to a URL.`,
   annotations: {
-    category: ToolCategories.NAVIGATION_AUTOMATION,
+    category: ToolCategory.NAVIGATION,
     readOnlyHint: false,
   },
   schema: {
-    url: z.string().describe('URL to navigate the page to'),
+    type: zod
+      .enum(['url', 'back', 'forward', 'reload'])
+      .optional()
+      .describe(
+        'Navigate the page by URL, back or forward in history, or reload.',
+      ),
+    url: zod.string().optional().describe('Target URL (only type=url)'),
+    ...timeoutSchema,
   },
   handler: async (request, response, context) => {
     const page = context.getSelectedPage();
+    const options = {
+      timeout: request.params.timeout,
+    };
+
+    if (!request.params.type && !request.params.url) {
+      throw new Error('Either URL or a type is required.');
+    }
+
+    if (!request.params.type) {
+      request.params.type = 'url';
+    }
 
     await context.waitForEventsAfterAction(async () => {
-      await page.goto(request.params.url);
-    });
-
-    response.setIncludePages(true);
-  },
-});
-
-export const navigatePageHistory = defineTool({
-  name: 'navigate_page_history',
-  description: `Navigates the currently selected page.`,
-  annotations: {
-    category: ToolCategories.NAVIGATION_AUTOMATION,
-    readOnlyHint: false,
-  },
-  schema: {
-    navigate: z
-      .enum(['back', 'forward'])
-      .describe(
-        'Whether to navigate back or navigate forward in the selected pages history',
-      ),
-  },
-  handler: async (request, response, context) => {
-    const page = context.getSelectedPage();
-
-    try {
-      if (request.params.navigate === 'back') {
-        await page.goBack();
-      } else {
-        await page.goForward();
+      switch (request.params.type) {
+        case 'url':
+          if (!request.params.url) {
+            throw new Error('A URL is required for navigation of type=url.');
+          }
+          try {
+            await page.goto(request.params.url, options);
+            response.appendResponseLine(
+              `Successfully navigated to ${request.params.url}.`,
+            );
+          } catch (error) {
+            response.appendResponseLine(
+              `Unable to navigate in the  selected page: ${error.message}.`,
+            );
+          }
+          break;
+        case 'back':
+          try {
+            await page.goBack(options);
+            response.appendResponseLine(
+              `Successfully navigated back to ${page.url()}.`,
+            );
+          } catch (error) {
+            response.appendResponseLine(
+              `Unable to navigate back in the selected page: ${error.message}.`,
+            );
+          }
+          break;
+        case 'forward':
+          try {
+            await page.goForward(options);
+            response.appendResponseLine(
+              `Successfully navigated forward to ${page.url()}.`,
+            );
+          } catch (error) {
+            response.appendResponseLine(
+              `Unable to navigate forward in the selected page: ${error.message}.`,
+            );
+          }
+          break;
+        case 'reload':
+          try {
+            await page.reload(options);
+            response.appendResponseLine(`Successfully reloaded the page.`);
+          } catch (error) {
+            response.appendResponseLine(
+              `Unable to reload the selected page: ${error.message}.`,
+            );
+          }
+          break;
       }
-    } catch {
-      response.appendResponseLine(
-        `Unable to navigate ${request.params.navigate} in currently selected page.`,
-      );
-    }
+    });
 
     response.setIncludePages(true);
   },
@@ -151,12 +190,12 @@ export const resizePage = defineTool({
   name: 'resize_page',
   description: `Resizes the selected page's window so that the page has specified dimension`,
   annotations: {
-    category: ToolCategories.EMULATION,
+    category: ToolCategory.EMULATION,
     readOnlyHint: false,
   },
   schema: {
-    width: z.number().describe('Page width'),
-    height: z.number().describe('Page height'),
+    width: zod.number().describe('Page width'),
+    height: zod.number().describe('Page height'),
   },
   handler: async (request, response, context) => {
     const page = context.getSelectedPage();
@@ -175,14 +214,14 @@ export const handleDialog = defineTool({
   name: 'handle_dialog',
   description: `If a browser dialog was opened, use this command to handle it`,
   annotations: {
-    category: ToolCategories.INPUT_AUTOMATION,
+    category: ToolCategory.INPUT,
     readOnlyHint: false,
   },
   schema: {
-    action: z
+    action: zod
       .enum(['accept', 'dismiss'])
       .describe('Whether to dismiss or accept the dialog'),
-    promptText: z
+    promptText: zod
       .string()
       .optional()
       .describe('Optional prompt text to enter into the dialog.'),
@@ -195,12 +234,22 @@ export const handleDialog = defineTool({
 
     switch (request.params.action) {
       case 'accept': {
-        await dialog.accept(request.params.promptText);
+        try {
+          await dialog.accept(request.params.promptText);
+        } catch (err) {
+          // Likely already handled by the user outside of MCP.
+          logger(err);
+        }
         response.appendResponseLine('Successfully accepted the dialog');
         break;
       }
       case 'dismiss': {
-        await dialog.dismiss();
+        try {
+          await dialog.dismiss();
+        } catch (err) {
+          // Likely already handled.
+          logger(err);
+        }
         response.appendResponseLine('Successfully dismissed the dialog');
         break;
       }

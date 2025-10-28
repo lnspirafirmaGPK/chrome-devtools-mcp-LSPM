@@ -4,37 +4,36 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import assert from 'node:assert';
+import {readFile, rm} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
 import {describe, it} from 'node:test';
 
-import {getMockRequest, html, withBrowser} from './utils.js';
+import {
+  getMockRequest,
+  getMockResponse,
+  html,
+  stabilizeResponseOutput,
+  withBrowser,
+} from './utils.js';
 
 describe('McpResponse', () => {
-  it('list pages', async () => {
+  it('list pages', async t => {
     await withBrowser(async (response, context) => {
       response.setIncludePages(true);
       const result = await response.handle('test', context);
       assert.equal(result[0].type, 'text');
-      assert.deepStrictEqual(
-        result[0].text,
-        `# test response
-## Pages
-0: about:blank [selected]`,
-      );
+      t.assert.snapshot?.(result[0].text);
     });
   });
 
-  it('allows response text lines to be added', async () => {
+  it('allows response text lines to be added', async t => {
     await withBrowser(async (response, context) => {
       response.appendResponseLine('Testing 1');
       response.appendResponseLine('Testing 2');
       const result = await response.handle('test', context);
       assert.equal(result[0].type, 'text');
-      assert.deepStrictEqual(
-        result[0].text,
-        `# test response
-Testing 1
-Testing 2`,
-      );
+      t.assert.snapshot?.(result[0].text);
     });
   });
 
@@ -48,28 +47,25 @@ Testing 2`,
     });
   });
 
-  it('returns correctly formatted snapshot for a simple tree', async () => {
+  it('returns correctly formatted snapshot for a simple tree', async t => {
     await withBrowser(async (response, context) => {
       const page = context.getSelectedPage();
-      await page.setContent(`<!DOCTYPE html>
-<button>Click me</button><input type="text" value="Input">`);
+      await page.setContent(
+        html`<button>Click me</button
+          ><input
+            type="text"
+            value="Input"
+          />`,
+      );
       await page.focus('button');
-      response.setIncludeSnapshot(true);
+      response.includeSnapshot();
       const result = await response.handle('test', context);
       assert.equal(result[0].type, 'text');
-      assert.strictEqual(
-        result[0].text,
-        `# test response
-## Page content
-uid=1_0 RootWebArea ""
-  uid=1_1 button "Click me" focusable focused
-  uid=1_2 textbox "" value="Input"
-`,
-      );
+      t.assert.snapshot?.(result[0].text);
     });
   });
 
-  it('returns values for textboxes', async () => {
+  it('returns values for textboxes', async t => {
     await withBrowser(async (response, context) => {
       const page = context.getSelectedPage();
       await page.setContent(
@@ -80,33 +76,53 @@ uid=1_0 RootWebArea ""
         /></label>`,
       );
       await page.focus('input');
-      response.setIncludeSnapshot(true);
+      response.includeSnapshot();
       const result = await response.handle('test', context);
       assert.equal(result[0].type, 'text');
-      assert.strictEqual(
-        result[0].text,
-        `# test response
-## Page content
-uid=1_0 RootWebArea "My test page"
-  uid=1_1 StaticText "username"
-  uid=1_2 textbox "username" value="mcp" focusable focused
-`,
-      );
+      t.assert.snapshot?.(result[0].text);
     });
   });
 
-  it('adds throttling setting when it is not null', async () => {
+  it('returns verbose snapshot', async t => {
+    await withBrowser(async (response, context) => {
+      const page = context.getSelectedPage();
+      await page.setContent(html`<aside>test</aside>`);
+      response.includeSnapshot({
+        verbose: true,
+      });
+      const result = await response.handle('test', context);
+      assert.equal(result[0].type, 'text');
+      t.assert.snapshot?.(result[0].text);
+    });
+  });
+
+  it('saves snapshot to file', async t => {
+    const filePath = join(tmpdir(), 'test-screenshot.png');
+    try {
+      await withBrowser(async (response, context) => {
+        const page = context.getSelectedPage();
+        await page.setContent(html`<aside>test</aside>`);
+        response.includeSnapshot({
+          verbose: true,
+          filePath,
+        });
+        const result = await response.handle('test', context);
+        assert.equal(result[0].type, 'text');
+        t.assert.snapshot?.(stabilizeResponseOutput(result[0].text));
+      });
+      const content = await readFile(filePath, 'utf-8');
+      t.assert.snapshot?.(stabilizeResponseOutput(content));
+    } finally {
+      await rm(filePath, {force: true});
+    }
+  });
+
+  it('adds throttling setting when it is not null', async t => {
     await withBrowser(async (response, context) => {
       context.setNetworkConditions('Slow 3G');
       const result = await response.handle('test', context);
       assert.equal(result[0].type, 'text');
-      assert.strictEqual(
-        result[0].text,
-        `# test response
-## Network emulation
-Emulating: Slow 3G
-Navigation timeout set to 100000 ms`,
-      );
+      t.assert.snapshot?.(result[0].text);
     });
   });
 
@@ -129,16 +145,11 @@ Navigation timeout set to 100000 ms`,
     });
   });
 
-  it('adds cpu throttling setting when it is over 1', async () => {
+  it('adds cpu throttling setting when it is over 1', async t => {
     await withBrowser(async (response, context) => {
       context.setCpuThrottlingRate(4);
       const result = await response.handle('test', context);
-      assert.strictEqual(
-        result[0].text,
-        `# test response
-## CPU emulation
-Emulating: 4x slowdown`,
-      );
+      t.assert.snapshot?.(result[0].text);
     });
   });
 
@@ -150,7 +161,7 @@ Emulating: 4x slowdown`,
     });
   });
 
-  it('adds a dialog', async () => {
+  it('adds a prompt dialog', async t => {
     await withBrowser(async (response, context) => {
       const page = context.getSelectedPage();
       const dialogPromise = new Promise<void>(resolve => {
@@ -159,35 +170,41 @@ Emulating: 4x slowdown`,
         });
       });
       page.evaluate(() => {
-        alert('test');
+        prompt('message', 'default');
       });
       await dialogPromise;
       const result = await response.handle('test', context);
       await context.getDialog()?.dismiss();
-      assert.strictEqual(
-        result[0].text,
-        `# test response
-# Open dialog
-alert: test (default value: test).
-Call browser_handle_dialog to handle it before continuing.`,
-      );
+      t.assert.snapshot?.(result[0].text);
     });
   });
 
-  it('add network requests when setting is true', async () => {
+  it('adds an alert dialog', async t => {
+    await withBrowser(async (response, context) => {
+      const page = context.getSelectedPage();
+      const dialogPromise = new Promise<void>(resolve => {
+        page.on('dialog', () => {
+          resolve();
+        });
+      });
+      page.evaluate(() => {
+        alert('message');
+      });
+      await dialogPromise;
+      const result = await response.handle('test', context);
+      await context.getDialog()?.dismiss();
+      t.assert.snapshot?.(result[0].text);
+    });
+  });
+
+  it('add network requests when setting is true', async t => {
     await withBrowser(async (response, context) => {
       response.setIncludeNetworkRequests(true);
       context.getNetworkRequests = () => {
-        return [getMockRequest()];
+        return [getMockRequest({stableId: 1}), getMockRequest({stableId: 2})];
       };
       const result = await response.handle('test', context);
-      assert.strictEqual(
-        result[0].text,
-        `# test response
-## Network requests
-Showing 1-1 of 1 (Page 1 of 1).
-http://example.com GET [pending]`,
-      );
+      t.assert.snapshot?.(result[0].text);
     });
   });
 
@@ -202,30 +219,55 @@ http://example.com GET [pending]`,
     });
   });
 
-  it('add network request when attached', async () => {
+  it('add network request when attached with POST data', async t => {
+    await withBrowser(async (response, context) => {
+      response.setIncludeNetworkRequests(true);
+      const httpResponse = getMockResponse();
+      httpResponse.buffer = () => {
+        return Promise.resolve(Buffer.from(JSON.stringify({response: 'body'})));
+      };
+      httpResponse.headers = () => {
+        return {
+          'Content-Type': 'application/json',
+        };
+      };
+      const request = getMockRequest({
+        method: 'POST',
+        hasPostData: true,
+        postData: JSON.stringify({request: 'body'}),
+        response: httpResponse,
+      });
+      context.getNetworkRequests = () => {
+        return [request];
+      };
+      context.getNetworkRequestById = () => {
+        return request;
+      };
+      response.attachNetworkRequest(1);
+
+      const result = await response.handle('test', context);
+
+      t.assert.snapshot?.(result[0].text);
+    });
+  });
+
+  it('add network request when attached', async t => {
     await withBrowser(async (response, context) => {
       response.setIncludeNetworkRequests(true);
       const request = getMockRequest();
       context.getNetworkRequests = () => {
         return [request];
       };
-      response.attachNetworkRequest(request.url());
+      context.getNetworkRequestById = () => {
+        return request;
+      };
+      response.attachNetworkRequest(1);
       const result = await response.handle('test', context);
-      assert.strictEqual(
-        result[0].text,
-        `# test response
-## Request http://example.com
-Status:  [pending]
-### Request Headers
-- content-size:10
-## Network requests
-Showing 1-1 of 1 (Page 1 of 1).
-http://example.com GET [pending]`,
-      );
+      t.assert.snapshot?.(result[0].text);
     });
   });
 
-  it('adds console messages when the setting is true', async () => {
+  it('adds console messages when the setting is true', async t => {
     await withBrowser(async (response, context) => {
       response.setIncludeConsoleData(true);
       const page = context.getSelectedPage();
@@ -240,33 +282,22 @@ http://example.com GET [pending]`,
       await consoleMessagePromise;
       const result = await response.handle('test', context);
       assert.ok(result[0].text);
-      // Cannot check the full text because it contains local file path
-      assert.ok(
-        result[0].text.toString().startsWith(`# test response
-## Console messages
-Log>`),
-      );
-      assert.ok(result[0].text.toString().includes('Hello from the test'));
+      t.assert.snapshot?.(result[0].text);
     });
   });
 
-  it('adds a message when no console messages exist', async () => {
+  it('adds a message when no console messages exist', async t => {
     await withBrowser(async (response, context) => {
       response.setIncludeConsoleData(true);
       const result = await response.handle('test', context);
       assert.ok(result[0].text);
-      assert.strictEqual(
-        result[0].text.toString(),
-        `# test response
-## Console messages
-<no console messages found>`,
-      );
+      t.assert.snapshot?.(result[0].text);
     });
   });
 });
 
 describe('McpResponse network request filtering', () => {
-  it('filters network requests by resource type', async () => {
+  it('filters network requests by resource type', async t => {
     await withBrowser(async (response, context) => {
       response.setIncludeNetworkRequests(true, {
         resourceTypes: ['script', 'stylesheet'],
@@ -280,18 +311,11 @@ describe('McpResponse network request filtering', () => {
         ];
       };
       const result = await response.handle('test', context);
-      assert.strictEqual(
-        result[0].text,
-        `# test response
-## Network requests
-Showing 1-2 of 2 (Page 1 of 1).
-http://example.com GET [pending]
-http://example.com GET [pending]`,
-      );
+      t.assert.snapshot?.(result[0].text);
     });
   });
 
-  it('filters network requests by single resource type', async () => {
+  it('filters network requests by single resource type', async t => {
     await withBrowser(async (response, context) => {
       response.setIncludeNetworkRequests(true, {
         resourceTypes: ['image'],
@@ -304,17 +328,11 @@ http://example.com GET [pending]`,
         ];
       };
       const result = await response.handle('test', context);
-      assert.strictEqual(
-        result[0].text,
-        `# test response
-## Network requests
-Showing 1-1 of 1 (Page 1 of 1).
-http://example.com GET [pending]`,
-      );
+      t.assert.snapshot?.(result[0].text);
     });
   });
 
-  it('shows no requests when filter matches nothing', async () => {
+  it('shows no requests when filter matches nothing', async t => {
     await withBrowser(async (response, context) => {
       response.setIncludeNetworkRequests(true, {
         resourceTypes: ['font'],
@@ -327,16 +345,11 @@ http://example.com GET [pending]`,
         ];
       };
       const result = await response.handle('test', context);
-      assert.strictEqual(
-        result[0].text,
-        `# test response
-## Network requests
-No requests found.`,
-      );
+      t.assert.snapshot?.(result[0].text);
     });
   });
 
-  it('shows all requests when no filters are provided', async () => {
+  it('shows all requests when no filters are provided', async t => {
     await withBrowser(async (response, context) => {
       response.setIncludeNetworkRequests(true);
       context.getNetworkRequests = () => {
@@ -349,21 +362,12 @@ No requests found.`,
         ];
       };
       const result = await response.handle('test', context);
-      assert.strictEqual(
-        result[0].text,
-        `# test response
-## Network requests
-Showing 1-5 of 5 (Page 1 of 1).
-http://example.com GET [pending]
-http://example.com GET [pending]
-http://example.com GET [pending]
-http://example.com GET [pending]
-http://example.com GET [pending]`,
-      );
+
+      t.assert.snapshot?.(result[0].text);
     });
   });
 
-  it('shows all requests when empty resourceTypes array is provided', async () => {
+  it('shows all requests when empty resourceTypes array is provided', async t => {
     await withBrowser(async (response, context) => {
       response.setIncludeNetworkRequests(true, {
         resourceTypes: [],
@@ -378,17 +382,7 @@ http://example.com GET [pending]`,
         ];
       };
       const result = await response.handle('test', context);
-      assert.strictEqual(
-        result[0].text,
-        `# test response
-## Network requests
-Showing 1-5 of 5 (Page 1 of 1).
-http://example.com GET [pending]
-http://example.com GET [pending]
-http://example.com GET [pending]
-http://example.com GET [pending]
-http://example.com GET [pending]`,
-      );
+      t.assert.snapshot?.(result[0].text);
     });
   });
 });

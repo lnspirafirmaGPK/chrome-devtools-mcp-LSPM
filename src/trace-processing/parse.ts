@@ -4,10 +4,12 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import {PerformanceInsightFormatter} from '../../node_modules/chrome-devtools-frontend/front_end/models/ai_assistance/data_formatters/PerformanceInsightFormatter.js';
-import {PerformanceTraceFormatter} from '../../node_modules/chrome-devtools-frontend/front_end/models/ai_assistance/data_formatters/PerformanceTraceFormatter.js';
-import {AgentFocus} from '../../node_modules/chrome-devtools-frontend/front_end/models/ai_assistance/performance/AIContext.js';
-import * as TraceEngine from '../../node_modules/chrome-devtools-frontend/front_end/models/trace/trace.js';
+import {
+  AgentFocus,
+  TraceEngine,
+  PerformanceTraceFormatter,
+  PerformanceInsightFormatter,
+} from '../../node_modules/chrome-devtools-frontend/mcp/mcp.js';
 import {logger} from '../logger.js';
 
 const engine = TraceEngine.TraceModel.Model.createWithAllHandlers();
@@ -66,7 +68,7 @@ export async function parseRawTraceBuffer(
     };
   } catch (e) {
     const errorText = e instanceof Error ? e.message : JSON.stringify(e);
-    logger(`Unexpeced error parsing trace: ${errorText}`);
+    logger(`Unexpected error parsing trace: ${errorText}`);
     return {
       error: errorText,
     };
@@ -77,15 +79,17 @@ const extraFormatDescriptions = `Information on performance traces may contain m
 
 ${PerformanceTraceFormatter.callFrameDataFormatDescription}
 
-${PerformanceTraceFormatter.networkDataFormatDescription}
-`;
+${PerformanceTraceFormatter.networkDataFormatDescription}`;
+
 export function getTraceSummary(result: TraceResult): string {
   const focus = AgentFocus.fromParsedTrace(result.parsedTrace);
   const formatter = new PerformanceTraceFormatter(focus);
-  const output = formatter.formatTraceSummary();
-  return `${extraFormatDescriptions}
+  const summaryText = formatter.formatTraceSummary();
+  return `## Summary of Performance trace findings:
+${summaryText}
 
-${output}`;
+## Details on call tree & network request formats:
+${extraFormatDescriptions}`;
 }
 
 export type InsightName = keyof TraceEngine.Insights.Types.InsightModels;

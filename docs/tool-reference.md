@@ -2,19 +2,19 @@
 
 # Chrome DevTools MCP Tool Reference
 
-- **[Input automation](#input-automation)** (7 tools)
+- **[Input automation](#input-automation)** (8 tools)
   - [`click`](#click)
   - [`drag`](#drag)
   - [`fill`](#fill)
   - [`fill_form`](#fill_form)
   - [`handle_dialog`](#handle_dialog)
   - [`hover`](#hover)
+  - [`press_key`](#press_key)
   - [`upload_file`](#upload_file)
-- **[Navigation automation](#navigation-automation)** (7 tools)
+- **[Navigation automation](#navigation-automation)** (6 tools)
   - [`close_page`](#close_page)
   - [`list_pages`](#list_pages)
   - [`navigate_page`](#navigate_page)
-  - [`navigate_page_history`](#navigate_page_history)
   - [`new_page`](#new_page)
   - [`select_page`](#select_page)
   - [`wait_for`](#wait_for)
@@ -29,8 +29,9 @@
 - **[Network](#network)** (2 tools)
   - [`get_network_request`](#get_network_request)
   - [`list_network_requests`](#list_network_requests)
-- **[Debugging](#debugging)** (4 tools)
+- **[Debugging](#debugging)** (5 tools)
   - [`evaluate_script`](#evaluate_script)
+  - [`get_console_message`](#get_console_message)
   - [`list_console_messages`](#list_console_messages)
   - [`take_screenshot`](#take_screenshot)
   - [`take_snapshot`](#take_snapshot)
@@ -101,6 +102,16 @@
 
 ---
 
+### `press_key`
+
+**Description:** Press a key or key combination. Use this when other input methods like [`fill`](#fill)() cannot be used (e.g., keyboard shortcuts, navigation keys, or special key combinations).
+
+**Parameters:**
+
+- **key** (string) **(required)**: A key or a combination (e.g., "Enter", "Control+A", "Control++", "Control+Shift+R"). Modifiers: Control, Shift, Alt, Meta
+
+---
+
 ### `upload_file`
 
 **Description:** Upload a file through a provided element.
@@ -138,17 +149,9 @@
 
 **Parameters:**
 
-- **url** (string) **(required)**: URL to navigate the page to
-
----
-
-### `navigate_page_history`
-
-**Description:** Navigates the currently selected page.
-
-**Parameters:**
-
-- **navigate** (enum: "back", "forward") **(required)**: Whether to navigate back or navigate forward in the selected pages history
+- **timeout** (integer) _(optional)_: Maximum wait time in milliseconds. If set to 0, the default timeout will be used.
+- **type** (enum: "url", "back", "forward", "reload") _(optional)_: Navigate the page by URL, back or forward in history, or reload.
+- **url** (string) _(optional)_: Target URL (only type=url)
 
 ---
 
@@ -158,6 +161,7 @@
 
 **Parameters:**
 
+- **timeout** (integer) _(optional)_: Maximum wait time in milliseconds. If set to 0, the default timeout will be used.
 - **url** (string) **(required)**: URL to load in a new page.
 
 ---
@@ -179,6 +183,7 @@
 **Parameters:**
 
 - **text** (string) **(required)**: Text to appear on the page
+- **timeout** (integer) _(optional)_: Maximum wait time in milliseconds. If set to 0, the default timeout will be used.
 
 ---
 
@@ -196,11 +201,11 @@
 
 ### `emulate_network`
 
-**Description:** Emulates network conditions such as throttling on the selected page.
+**Description:** Emulates network conditions such as throttling or offline mode on the selected page.
 
 **Parameters:**
 
-- **throttlingOption** (enum: "No emulation", "Slow 3G", "Fast 3G", "Slow 4G", "Fast 4G") **(required)**: The network throttling option to emulate. Available throttling options are: No emulation, Slow 3G, Fast 3G, Slow 4G, Fast 4G. Set to "No emulation" to disable.
+- **throttlingOption** (enum: "No emulation", "Offline", "Slow 3G", "Fast 3G", "Slow 4G", "Fast 4G") **(required)**: The network throttling option to emulate. Available throttling options are: No emulation, Offline, Slow 3G, Fast 3G, Slow 4G, Fast 4G. Set to "No emulation" to disable. Set to "Offline" to simulate offline network conditions.
 
 ---
 
@@ -219,7 +224,7 @@
 
 ### `performance_analyze_insight`
 
-**Description:** Provides more detailed information on a specific Performance Insight that was highlighed in the results of a trace recording.
+**Description:** Provides more detailed information on a specific Performance Insight that was highlighted in the results of a trace recording.
 
 **Parameters:**
 
@@ -250,20 +255,22 @@
 
 ### `get_network_request`
 
-**Description:** Gets a network request by URL. You can get all requests by calling [`list_network_requests`](#list_network_requests).
+**Description:** Gets a network request by reqid. You can get all requests by calling [`list_network_requests`](#list_network_requests).
+Get the request currently selected in the DevTools UI by ommitting reqid
 
 **Parameters:**
 
-- **url** (string) **(required)**: The URL of the request.
+- **reqid** (number) _(optional)_: The reqid of the network request. If omitted, looks up the current request selected in DevTools UI.
 
 ---
 
 ### `list_network_requests`
 
-**Description:** List all requests for the currently selected page
+**Description:** List all requests for the currently selected page since the last navigation.
 
 **Parameters:**
 
+- **includePreservedRequests** (boolean) _(optional)_: Set to true to return the preserved requests over the last 3 navigations.
 - **pageIdx** (integer) _(optional)_: Page number to return (0-based). When omitted, returns the first page.
 - **pageSize** (integer) _(optional)_: Maximum number of requests to return. When omitted, returns all requests.
 - **resourceTypes** (array) _(optional)_: Filter requests to only return requests of the specified resource types. When omitted or empty, returns all requests.
@@ -280,7 +287,7 @@ so returned values have to JSON-serializable.
 **Parameters:**
 
 - **args** (array) _(optional)_: An optional list of arguments to pass to the function.
-- **function** (string) **(required)**: A JavaScript function to run in the currently selected page.
+- **function** (string) **(required)**: A JavaScript function declaration to be executed by the tool in the currently selected page.
   Example without arguments: `() => {
   return document.title
 }` or `async () => {
@@ -292,11 +299,26 @@ so returned values have to JSON-serializable.
 
 ---
 
+### `get_console_message`
+
+**Description:** Gets a console message by its ID. You can get all messages by calling [`list_console_messages`](#list_console_messages).
+
+**Parameters:**
+
+- **msgid** (number) **(required)**: The msgid of a console message on the page from the listed console messages
+
+---
+
 ### `list_console_messages`
 
-**Description:** List all console messages for the currently selected page
+**Description:** List all console messages for the currently selected page since the last navigation.
 
-**Parameters:** None
+**Parameters:**
+
+- **includePreservedMessages** (boolean) _(optional)_: Set to true to return the preserved messages over the last 3 navigations.
+- **pageIdx** (integer) _(optional)_: Page number to return (0-based). When omitted, returns the first page.
+- **pageSize** (integer) _(optional)_: Maximum number of messages to return. When omitted, returns all requests.
+- **types** (array) _(optional)_: Filter messages to only return messages of the specified resource types. When omitted or empty, returns all messages.
 
 ---
 
@@ -306,17 +328,22 @@ so returned values have to JSON-serializable.
 
 **Parameters:**
 
-- **format** (enum: "png", "jpeg") _(optional)_: Type of format to save the screenshot as. Default is "png"
+- **filePath** (string) _(optional)_: The absolute path, or a path relative to the current working directory, to save the screenshot to instead of attaching it to the response.
+- **format** (enum: "png", "jpeg", "webp") _(optional)_: Type of format to save the screenshot as. Default is "png"
 - **fullPage** (boolean) _(optional)_: If set to true takes a screenshot of the full page instead of the currently visible viewport. Incompatible with uid.
+- **quality** (number) _(optional)_: Compression quality for JPEG and WebP formats (0-100). Higher values mean better quality but larger file sizes. Ignored for PNG format.
 - **uid** (string) _(optional)_: The uid of an element on the page from the page content snapshot. If omitted takes a pages screenshot.
 
 ---
 
 ### `take_snapshot`
 
-**Description:** Take a text snapshot of the currently selected page. The snapshot lists page elements along with a unique
+**Description:** Take a text snapshot of the currently selected page based on the a11y tree. The snapshot lists page elements along with a unique
 identifier (uid). Always use the latest snapshot. Prefer taking a snapshot over taking a screenshot.
 
-**Parameters:** None
+**Parameters:**
+
+- **filePath** (string) _(optional)_: The absolute path, or a path relative to the current working directory, to save the snapshot to instead of attaching it to the response.
+- **verbose** (boolean) _(optional)_: Whether to include all possible information available in the full a11y tree. Default is false.
 
 ---
